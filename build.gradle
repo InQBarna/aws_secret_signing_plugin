@@ -1,0 +1,41 @@
+plugins {
+    id 'java-gradle-plugin'
+    id 'org.jetbrains.kotlin.jvm' version '1.6.10'
+    id 'maven-publish'
+}
+
+group 'com.inqbarna'
+version '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+    google()
+}
+
+compileKotlin {
+    kotlinOptions {
+        freeCompilerArgs = ["-Xopt-in=kotlin.RequiresOptIn"]
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib"
+    implementation "com.android.tools.build:gradle-api:7.1.1"
+    implementation platform("software.amazon.awssdk:bom:2.17.133")
+    implementation "software.amazon.awssdk:secretsmanager"
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.1'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
+}
+
+gradlePlugin {
+    plugins {
+        simplePlugin {
+            id = 'com.inqbarna.secretsigning'
+            implementationClass = 'com.inqbarna.secretsigning.SecretSigningPlugin'
+        }
+    }
+}
+
+test {
+    useJUnitPlatform()
+}
