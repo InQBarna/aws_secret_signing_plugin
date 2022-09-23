@@ -12,12 +12,14 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.logging.LogLevel
+import org.gradle.api.logging.LoggingManager
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.Property
-import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.Internal
-import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.*
+import org.gradle.api.tasks.bundling.Zip
+import org.gradle.process.ExecOperations
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import javax.inject.Inject
@@ -110,7 +112,7 @@ class SecretSigningPlugin : Plugin<Project> {
 
                 val taskProvider = project
                     .tasks
-                    .register("secretSign${variant.name.capitalize()}", AWSSecretSigningTask::class.java) {
+                    .register("secret${variant.name.capitalize()}SignApk", AWSSecretSigningTask::class.java) {
                         it.sdkComponents = sdkComponents
                         it.params = params
                     }
@@ -126,6 +128,96 @@ class SecretSigningPlugin : Plugin<Project> {
 
                 taskProvider.configure {
                     it.transformationRequest.set(transformMany)
+                }
+
+                /* WIP bundle signing?
+                val bundleSigningTask = project
+                    .tasks
+                    .register("secret${variant.name.capitalize()}SignBundle", AWSBundleSigningTask::class.java) {
+                        it.params = params
+                    }
+
+                variant
+                    .artifacts
+                    .use(bundleSigningTask)
+                    .wiredWithFiles(AWSBundleSigningTask::inputBundle, AWSBundleSigningTask::outputBundle)
+                    .toTransform(SingleArtifact.BUNDLE)
+
+                 */
+            }
+        }
+    }
+}
+
+private inline fun LoggingManager.upgradeLoggingToLevel(level: LogLevel, block: () -> Unit) {
+    val originalStdoutLevel = standardOutputCaptureLevel
+    val originalStderrLevel = standardErrorCaptureLevel
+    try {
+        captureStandardError(level)
+        captureStandardOutput(level)
+        block()
+    } finally {
+        captureStandardError(originalStderrLevel)
+        captureStandardOutput(originalStdoutLevel)
+    }
+}
+
+private abstract class BundleSingRemover : Zip() {
+    @get:InputFile
+    abstract val inputBundle: RegularFileProperty
+
+    @get:OutputFile
+    abstract val outputBundle: RegularFileProperty
+
+    override fun copy() {
+        from(project.zipTree(inputBundle))
+        archiveFile
+        super.copy()
+    }
+
+}
+
+private abstract class AWSBundleSigningTask @Inject constructor(private val execOperations: ExecOperations) : DefaultTask() {
+    @get:InputFile
+    abstract val inputBundle: RegularFileProperty
+
+    @get:OutputFile
+    abstract val outputBundle: RegularFileProperty
+
+    @get:Internal
+    lateinit var params: SecureSigningParams
+
+    @OptIn(ExperimentalStdlibApi::class)
+    @TaskAction
+    fun taskAction() {
+
+        // Copy original to dest
+        logger.lifecycle("Will copy from ${inputBundle.get()} to ${outputBundle.get()}")
+        logging.upgradeLoggingToLevel(LogLevel.LIFECYCLE) {
+            val result = project.copy {
+                it.from(inputBundle.get())
+                it.into(outputBundle.get())
+            }
+
+            if (!result.didWork) {
+                throw GradleException("Couldn't copy to target bundle: ${outputBundle.get().asFile}")
+            }
+
+            val secret = getSecret(params.secretName, params.regionName)
+
+            val targetFile = File(outputBundle.get().asFile.absolutePath, inputBundle.asFile.get().name)
+            execOperations.exec {
+                it.executable = "jarsigner"
+                it.args = buildList {
+                    add("-verbose")
+                    add("-keystore")
+                    add(params.storeFile.absolutePath)
+                    add("-storepass")
+                    add(secret.store_pass)
+                    add("-keypass")
+                    add(secret.alias_pass)
+                    add(targetFile.absolutePath)
+                    add(secret.alias_name)
                 }
             }
         }
