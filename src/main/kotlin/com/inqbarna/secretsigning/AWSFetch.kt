@@ -117,7 +117,6 @@ internal abstract class FetchSecretsTask @Inject constructor(
         val secretName = requireExtensionProperty(extension, SecretSigningExtension::secretName)
         val regionName = requireExtensionProperty(extension, SecretSigningExtension::regionName)
         val file = requireExtensionProperty(extension, SecretSigningExtension::keystoreFile)
-        val targetBuildType = extension.targetBuildType ?: "release"
 
         if (!file.exists()) {
             throw GradleException("Illegal secret signing configuration. Keystore file '$file' doesn't exist!")
@@ -128,15 +127,17 @@ internal abstract class FetchSecretsTask @Inject constructor(
         getSigningDataFile(project).outputStream().writer().use {
             gson.toJson(
                 SignConfigSecret(
-                    targetBuildType,
+                    "release",
                     file.absolutePath,
-                    targetBuildType,
+                    "secretSigning",
                     secretInfo
                 ),
                 SignConfigSecret::class.java,
                 it
             )
         }
+
+        logger.lifecycle("Secrets have been fetched! Signing configs only regenerate on 'gradle sync' thus, sync your project again to configure properly")
     }
 }
 

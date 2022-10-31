@@ -6,5 +6,4 @@ interface SecretSigningExtension {
     var secretName: String?
     var regionName: String?
     var keystoreFile: File?
-    var targetBuildType: String?
 }

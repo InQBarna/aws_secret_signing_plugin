@@ -21,10 +21,12 @@ class SecretSigningPlugin : Plugin<Project> {
 
             project.tasks.register("fetchSecretSigning", FetchSecretsTask::class.java, extension)
 
+            val parsedSigningInfo = parseSecretSigningData(project)
             androidComponents.finalizeDsl { commonExtension ->
+
                 (commonExtension as? ApplicationExtension)?.let { appExtension ->
 
-                    val data = parseSecretSigningData(project) ?: run {
+                    val data = parsedSigningInfo ?: run {
                         logger.log(LogLevel.WARN,
                             """There's no secret signing information. Please configure 'secretSigning' extension
                                 | and execute 'fetchSecretSigning' task then sync project again to get signature configured
@@ -46,6 +48,14 @@ class SecretSigningPlugin : Plugin<Project> {
                             appBuildType.signingConfig = signingConfig
                         }
                     }
+                }
+            }
+
+            if (parsedSigningInfo == null) {
+                logger.lifecycle("Will disable release variants till 'fetchSecretSigning' is properly executed")
+                androidComponents.beforeVariants(androidComponents.selector().withBuildType("release")) {
+                    logger.lifecycle("Disabling Variant ${it.name}")
+                    it.enable = false
                 }
             }
         }
