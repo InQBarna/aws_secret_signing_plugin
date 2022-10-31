@@ -2,6 +2,8 @@ plugins {
     id 'java-gradle-plugin'
     id 'org.jetbrains.kotlin.jvm' version '1.6.10'
     id 'maven-publish'
+    id "com.gradle.plugin-publish" version "1.0.0-rc-1"
+    id "signing"
 }
 
 group 'com.inqbarna'
@@ -28,11 +30,24 @@ dependencies {
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
 }
 
+signing {
+    useGpgCmd()
+    sign configurations.archives
+}
+
+pluginBundle {
+    website = "https://github.com/InQBarna/aws_secret_signing_plugin"
+    vcsUrl = "https://github.com/InQBarna/aws_secret_signing_plugin"
+    tags = ["android", "signing", "secret", "security", "aws"]
+}
+
 gradlePlugin {
     plugins {
         simplePlugin {
             id = 'com.inqbarna.secretsigning'
             implementationClass = 'com.inqbarna.secretsigning.SecretSigningPlugin'
+            displayName = "AWS Secret Signing Plugin"
+            description = "Get passwords from AWS Secret Manager to configure android signing release configuration"
         }
     }
 }
