@@ -2,81 +2,10 @@ package com.inqbarna.secretsigning
 
 import com.google.gson.GsonBuilder
 import org.gradle.api.GradleException
-import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.logging.Logging
-import org.gradle.process.ExecOperations
-import org.gradle.workers.WorkAction
-import org.gradle.workers.WorkParameters
 import software.amazon.awssdk.core.exception.SdkClientException
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient
 import software.amazon.awssdk.services.secretsmanager.model.*
-import java.io.File
-import javax.inject.Inject
-
-interface SignerParams : WorkParameters, java.io.Serializable {
-    val inputApk: RegularFileProperty
-    val outApk: RegularFileProperty
-    var config: SecureSigningParams
-    var apkSignerPath: File
-}
-
-internal abstract class AWSSignWorker @Inject constructor(
-    private val params: SignerParams,
-    private val execOperations: ExecOperations
-) : WorkAction<SignerParams> {
-
-    val config: SecureSigningParams
-        get() = params.config
-
-    private val logger by lazy { Logging.getLogger(AWSSignWorker::class.java) }
-
-    @OptIn(ExperimentalStdlibApi::class)
-    override fun execute() {
-
-        val storeFile = params.config.storeFile.absolutePath
-
-        val inFile = params.inputApk.asFile.get().absolutePath
-        val outFile = params.outApk.asFile.get().absolutePath
-
-        logger.info("Fetching secret... ${params.config.secretName}")
-        val secretInfo = getSecret(params.config.secretName, params.config.regionName)
-        logger.debug("Got secret...")
-
-        execOperations.exec {
-            it.executable = params.apkSignerPath.absolutePath
-            it.args = buildList {
-                add("sign")
-                add("-v")
-                if (config.enabledV1) {
-                    add("--v1-signing-enabled")
-                }
-                if (config.enabledV2) {
-                    add("--v2-signing-enabled")
-                }
-                if (config.enabledV3) {
-                    add("--v3-signing-enabled")
-                }
-                if (config.enabledV4) {
-                    add("--v4-signing-enabled")
-                }
-                add("--in")
-                add(inFile)
-                add("--out")
-                add(outFile)
-                add("--ks")
-                add(storeFile)
-                add("--ks-key-alias")
-                add(secretInfo.alias_name)
-                add("--ks-pass")
-                add("pass:${secretInfo.store_pass}")
-                add("--key-pass")
-                add("pass:${secretInfo.alias_pass}")
-            }
-        }.assertNormalExitValue()
-        logger.info("Signed $inFile to $outFile")
-    }
-}
 
 
 // Use this code snippet in your app.
