@@ -1,11 +1,18 @@
 package com.inqbarna.secretsigning
 
 import com.google.gson.GsonBuilder
+import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
+import org.gradle.api.Project
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.TaskAction
 import software.amazon.awssdk.core.exception.SdkClientException
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient
 import software.amazon.awssdk.services.secretsmanager.model.*
+import java.io.File
+import javax.inject.Inject
+import kotlin.reflect.KProperty1
 
 
 // Use this code snippet in your app.
@@ -15,7 +22,7 @@ import software.amazon.awssdk.services.secretsmanager.model.*
 // Use this code snippet in your app.
 // If you need more information about configurations or implementing the sample code, visit the AWS docs:
 // https://docs.aws.amazon.com/sdk-for-java/v1/developer-guide/java-dg-samples.html#prerequisites
-fun getSecret(secretName: String, regionName: String): SecretInfo {
+private fun getSecret(secretName: String, regionName: String): SecretInfo {
     val region: Region = Region.of(regionName)
 
     // Create a Secrets Manager client
@@ -81,3 +88,77 @@ data class SecretInfo(
     val alias_pass: String,
     val store_pass: String
 )
+
+data class SignConfigSecret(
+    val targetBuildType: String,
+    val keystoreFile: String,
+    val signingName: String,
+    val signingInfo: SecretInfo
+)
+
+private fun <V : Any> requireExtensionProperty(
+    extension: SecretSigningExtension,
+    property: KProperty1<SecretSigningExtension, V?>
+): V {
+    return property.get(extension)
+        ?: throw GradleException("Secret signing configuration has not been properly configured, missing: 'secretSigning.${property.name}'")
+}
+
+internal abstract class FetchSecretsTask @Inject constructor(
+    @Internal val extension: SecretSigningExtension
+    ) : DefaultTask() {
+
+    init {
+        description = "Fetch secret signing information from AWS"
+    }
+
+    @TaskAction
+    fun fetchSecrets() {
+        val secretName = requireExtensionProperty(extension, SecretSigningExtension::secretName)
+        val regionName = requireExtensionProperty(extension, SecretSigningExtension::regionName)
+        val file = requireExtensionProperty(extension, SecretSigningExtension::keystoreFile)
+        val targetBuildType = extension.targetBuildType ?: "release"
+
+        if (!file.exists()) {
+            throw GradleException("Illegal secret signing configuration. Keystore file '$file' doesn't exist!")
+        }
+
+        val secretInfo = getSecret(secretName, regionName)
+        val gson = GsonBuilder().create()
+        getSigningDataFile(project).outputStream().writer().use {
+            gson.toJson(
+                SignConfigSecret(
+                    targetBuildType,
+                    file.absolutePath,
+                    targetBuildType,
+                    secretInfo
+                ),
+                SignConfigSecret::class.java,
+                it
+            )
+        }
+    }
+}
+
+internal fun parseSecretSigningData(project: Project): SignConfigSecret? {
+    val secretSignFile = getSigningDataFile(project)
+    return if (secretSignFile.exists()) {
+        val gson = GsonBuilder().create()
+        try {
+            gson.fromJson(secretSignFile.reader(), SignConfigSecret::class.java)
+        } catch (e: Exception) {
+            project.logger.error("Failed to decode 'secretSigning' data file!!", e)
+            null
+        }
+    } else {
+        null
+    }
+}
+internal fun getSigningDataFile(project: Project): File {
+    val directory = project.layout.buildDirectory.get().dir("secret_signing")
+    val dirFile = directory.asFile
+    if (!dirFile.exists()) {
+        dirFile.mkdirs()
+    }
+    return File(dirFile, "signing.dat")
+}
