@@ -12,11 +12,35 @@ and [configured](https://docs.aws.amazon.com/cli/latest/userguide/getting-starte
 
 In your project `build.gradle` apply the *Secret Signing* plugin
 
+<details open>
+<summary>Plugin DSL</summary>
+
 ```groovy
 plugins {
     id "com.inqbarna.secretsigning" version "1.0"
 }
 ```
+</details>
+
+<details>
+<summary>Legacy Syntax</summary>
+
+```groovy
+buildscript {
+  repositories {
+    maven {
+      url "https://plugins.gradle.org/m2/"
+    }
+  }
+  dependencies {
+    classpath "com.inqbarna:secretsigning:1.0"
+  }
+}
+
+apply plugin: "com.inqbarna.secretsigning"
+```
+</details>
+
 
 Configure it in the `secretSigning` block as follows
 
