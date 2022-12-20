@@ -17,7 +17,7 @@ In your project `build.gradle` apply the *Secret Signing* plugin
 
 ```groovy
 plugins {
-    id "com.inqbarna.secretsigning" version "1.0"
+    id "com.inqbarna.secretsigning" version "1.1"
 }
 ```
 </details>
@@ -33,7 +33,7 @@ buildscript {
     }
   }
   dependencies {
-    classpath "com.inqbarna:secretsigning:1.0"
+    classpath "com.inqbarna:secretsigning:1.1"
   }
 }
 
@@ -42,18 +42,42 @@ apply plugin: "com.inqbarna.secretsigning"
 </details>
 
 
-Configure it in the `secretSigning` block as follows
+You can configure it in the `secretSigning` block as follows either at 'android' block, or at any of the 
+productFlavors
 
 ```groovy
-secretSigning {
-    // This is the secret name as declared in AWS Secret Manager
-    secretName "your/aws/secret/name"
-    // The zone where to fetch the secret (it must be deployed there too)
-    regionName "eu-west-1"
+android {
+    secretSigning {
+        // This is the secret name as declared in AWS Secret Manager
+        secretName "your/aws/secret/default"
+        // The zone where to fetch the secret (it must be deployed there too)
+        regionName "eu-west-1"
+
+        // Local path for the keystore. If you use strong passwords for keystore and for alias
+        // it may be safe to commit the file to your repository
+        keystoreFile file("keystore_filename.jks")
+    }
     
-    // Local path for the keystore. If you use strong passwords for keystore and for alias
-    // it may be safe to commit the file to your repository
-    keystoreFile file("keystore_filename.jks")
+    flavorDimensions "env"
+    productFlavors {
+        pre {
+            dimension "env"
+            // You can override any or all the values per flavor basis
+            secretSigning {
+                // This is the secret name as declared in AWS Secret Manager
+                // This overrides the value given at project 'android' configuration
+                // level
+                secretName "your/aws/secret/pre"
+            }
+        }
+        pro {
+            dimension "env"
+            secretSigning {
+                // This is the secret name as declared in AWS Secret Manager
+                secretName "your/aws/secret/pro"
+            }
+        }
+    }
 }
 ```
 
