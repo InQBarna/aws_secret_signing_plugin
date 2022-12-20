@@ -17,63 +17,40 @@
 package com.inqbarna.secretsigning
 
 import com.android.build.api.dsl.ApplicationExtension
-import com.android.build.api.variant.AndroidComponentsExtension
+import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.api.logging.LogLevel
-import java.io.File
-
+import org.gradle.api.plugins.ExtensionAware
 
 class SecretSigningPlugin : Plugin<Project> {
 
     override fun apply(project: Project) {
 
         project.pluginManager.withPlugin("com.android.base") {
-            val logger = project.logger
+            val androidComponents = project.extensions.getByType(ApplicationAndroidComponentsExtension::class.java)
 
-            val androidComponents = project.extensions.getByType(AndroidComponentsExtension::class.java)
+            val applicationExtension = project.extensions.getByType(ApplicationExtension::class.java)
+            configureAppExtension(applicationExtension)
 
-            val extension = project.extensions.create("secretSigning", SecretSigningExtension::class.java)
 
-            project.tasks.register("fetchSecretSigning", FetchSecretsTask::class.java, extension)
+            project.tasks.register("fetchSecretSigning", FetchSecretsTask::class.java, applicationExtension)
 
             val parsedSigningInfo = parseSecretSigningData(project)
-            androidComponents.finalizeDsl { commonExtension ->
 
-                (commonExtension as? ApplicationExtension)?.let { appExtension ->
-
-                    val data = parsedSigningInfo ?: run {
-                        logger.log(LogLevel.WARN,
-                            """There's no secret signing information. Please configure 'secretSigning' extension
-                                | and execute 'fetchSecretSigning' task then sync project again to get signature configured
-                            """.trimMargin()
-                        )
-                        return@let
-                    }
-
-                    val signingConfig = appExtension.signingConfigs.create(data.signingName) {
-                        it.storeFile = File(data.keystoreFile)
-                        it.storePassword = data.signingInfo.store_pass
-                        it.keyAlias = data.signingInfo.alias_name
-                        it.keyPassword = data.signingInfo.alias_pass
-                    }
-
-                    appExtension.buildTypes.forEach { appBuildType ->
-                        if (appBuildType.name == data.targetBuildType) {
-                            logger.lifecycle("Configured '${appBuildType.name}' signingConfig with secret information!!")
-                            appBuildType.signingConfig = signingConfig
-                        }
-                    }
-                }
-            }
-
-            if (parsedSigningInfo == null) {
-                logger.lifecycle("Will disable release variants till 'fetchSecretSigning' is properly executed")
-                androidComponents.beforeVariants(androidComponents.selector().withBuildType("release")) {
-                    logger.lifecycle("Disabling Variant ${it.name}")
-                    it.enable = false
-                }
-            }
+            parsedSigningInfo.configureSinging(androidComponents)
         }
+    }
+
+    private fun configureAppExtension(
+        applicationExtension: ApplicationExtension,
+    ) {
+        (applicationExtension as? ExtensionAware)?.let {
+            it.extensions.create(SecretSigningExtension::class.java, "secretSigning", SecretSigningExtensionImpl::class.java)
+        }
+
+        applicationExtension.productFlavors.all { flavor ->
+            flavor.extensions.create(SecretSigningExtension::class.java, "secretSigning", SecretSigningExtensionImpl::class.java)
+        }
+
     }
 }

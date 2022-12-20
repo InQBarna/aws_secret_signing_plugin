@@ -16,10 +16,62 @@
 
 package com.inqbarna.secretsigning
 
+import org.gradle.api.GradleException
 import java.io.File
 
 interface SecretSigningExtension {
     var secretName: String?
     var regionName: String?
     var keystoreFile: File?
+}
+open class SecretSigningExtensionImpl : SecretSigningExtension {
+
+
+    override var secretName: String? = null
+    override var regionName: String? = null
+    override var keystoreFile: File? = null
+
+    fun isValid(): Boolean {
+        return secretName != null && regionName != null && keystoreFile != null
+    }
+
+    fun reportMissingFields(): List<String> = listOf(
+        ::secretName,
+        ::regionName,
+        ::keystoreFile
+    ).mapNotNull {
+        if (it.get() == null) {
+            it.name
+        } else {
+            null
+        }
+    }
+
+    override fun toString(): String {
+        return "{secretName: $secretName, regionName: $regionName, file: $keystoreFile}"
+    }
+}
+
+fun SecretSigningExtensionImpl?.orEmpty(): SecretSigningExtensionImpl {
+    return this ?: SecretSigningExtensionImpl()
+}
+
+fun SecretSigningExtensionImpl?.mergeWith(vararg others: SecretSigningExtensionImpl?): SecretSigningExtensionImpl {
+    return mergeValues(this, *others)
+}
+
+fun mergeValues(vararg config: SecretSigningExtensionImpl?): SecretSigningExtensionImpl {
+    val nonNull = config.filterNotNull().takeUnless { it.isEmpty() }
+        ?: throw GradleException(
+            """Cannot merge configurations, all objects are null.
+
+               Please make sure you provide configuration of 'secretSigning' extension either on
+               'productFlavor' or in base 'android' extension
+""".trimIndent()
+        )
+    return SecretSigningExtensionImpl().also { result ->
+        result.secretName = nonNull.firstOrNull { it.secretName != null }?.secretName
+        result.regionName = nonNull.firstOrNull { it.regionName != null }?.regionName
+        result.keystoreFile = nonNull.firstOrNull { it.keystoreFile != null }?.keystoreFile
+    }
 }

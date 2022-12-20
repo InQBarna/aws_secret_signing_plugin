@@ -16,19 +16,26 @@
 
 package com.inqbarna.secretsigning
 
-import com.google.gson.GsonBuilder
+import com.android.build.api.dsl.ApplicationExtension
+import com.google.common.collect.ImmutableSetMultimap
+import com.google.common.collect.Sets
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.encodeToStream
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.Project
+import org.gradle.api.plugins.ExtensionAware
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskAction
+import org.gradle.configurationcache.extensions.capitalized
 import software.amazon.awssdk.core.exception.SdkClientException
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient
 import software.amazon.awssdk.services.secretsmanager.model.*
 import java.io.File
 import javax.inject.Inject
-import kotlin.reflect.KProperty1
 
 
 // Use this code snippet in your app.
@@ -82,9 +89,7 @@ private fun getSecret(secretName: String, regionName: String): SecretInfo {
     // Depending on whether the secret is a string or binary, one of these fields will be populated.
     return if (getSecretValueResponse.secretString() != null) {
         val result = runCatching {
-            GsonBuilder()
-                .create()
-                .fromJson(getSecretValueResponse.secretString(), SecretInfo::class.java)
+            Json.decodeFromString<SecretInfo>(getSecretValueResponse.secretString())
         }
 
         if (result.isSuccess) {
@@ -99,29 +104,8 @@ private fun getSecret(secretName: String, regionName: String): SecretInfo {
     }
 }
 
-data class SecretInfo(
-    val alias_name: String,
-    val alias_pass: String,
-    val store_pass: String
-)
-
-data class SignConfigSecret(
-    val targetBuildType: String,
-    val keystoreFile: String,
-    val signingName: String,
-    val signingInfo: SecretInfo
-)
-
-private fun <V : Any> requireExtensionProperty(
-    extension: SecretSigningExtension,
-    property: KProperty1<SecretSigningExtension, V?>
-): V {
-    return property.get(extension)
-        ?: throw GradleException("Secret signing configuration has not been properly configured, missing: 'secretSigning.${property.name}'")
-}
-
 internal abstract class FetchSecretsTask @Inject constructor(
-    @Internal val extension: SecretSigningExtension
+    @Internal val androidComponentsExtension: ApplicationExtension
     ) : DefaultTask() {
 
     init {
@@ -130,45 +114,120 @@ internal abstract class FetchSecretsTask @Inject constructor(
 
     @TaskAction
     fun fetchSecrets() {
-        val secretName = requireExtensionProperty(extension, SecretSigningExtension::secretName)
-        val regionName = requireExtensionProperty(extension, SecretSigningExtension::regionName)
-        val file = requireExtensionProperty(extension, SecretSigningExtension::keystoreFile)
 
-        if (!file.exists()) {
-            throw GradleException("Illegal secret signing configuration. Keystore file '$file' doesn't exist!")
+        val defaultExtension = (androidComponentsExtension as? ExtensionAware)
+            ?.let { it.extensions.findByType(SecretSigningExtension::class.java) as SecretSigningExtensionImpl? }.orEmpty()
+
+
+
+        val taskPieces = if (androidComponentsExtension.productFlavors.isNotEmpty()) {
+            val multiMapBuilder = ImmutableSetMultimap.builder<String, FetchTaskPiece>()
+            androidComponentsExtension.productFlavors.forEach { flavor ->
+                val merged =
+                    (flavor.extensions.findByType(SecretSigningExtension::class.java) as SecretSigningExtensionImpl?).mergeWith(
+                        defaultExtension
+                    )
+                multiMapBuilder.put(flavor.dimension!!, FetchTaskPiece(flavor.name, merged))
+//            logger.error("Adding entry(${flavor.dimension!!} = $merged")
+            }
+            val multimap = multiMapBuilder.build()
+            val uncombinedPieces = androidComponentsExtension.flavorDimensions.map {
+                multimap[it]
+            }
+
+            Sets.cartesianProduct(uncombinedPieces).mapNotNull {
+                runCatching {
+                    it.merge()
+                }.recover {
+                    logger.warn(it.message)
+                    null
+                }.getOrThrow()
+            }
+        } else {
+            if (!defaultExtension.isValid()) {
+                throw GradleException(
+                    """
+                        Missing information to fetch default 'secretSigning'.
+                        Please configure properly 'secretSigning' extension at flavor or android extension level.
+                
+                        Missing fields: ${defaultExtension.reportMissingFields().joinToString()}    
+                    """.trimIndent()
+                )
+            }
+            listOf(FetchTaskPiece("release", defaultExtension))
         }
 
-        val secretInfo = getSecret(secretName, regionName)
-        val gson = GsonBuilder().create()
-        getSigningDataFile(project).outputStream().writer().use {
-            gson.toJson(
-                SignConfigSecret(
-                    "release",
-                    file.absolutePath,
-                    "secretSigning",
-                    secretInfo
-                ),
-                SignConfigSecret::class.java,
-                it
-            )
+
+
+        if (taskPieces.isEmpty()) {
+            logger.error("There's no 'secretSigning' configuration to fetch")
+        } else {
+            val data = taskPieces
+                .onEach {
+                    logger.info("Fetching secret for '${it.name}' using params ${it.config}")
+                }
+                .map {
+                    SignConfigSecret(
+                        "release",
+                        it.name,
+                        it.config.keystoreFile!!.absolutePath,
+                        "${it.name}Signing",
+                        getSecret(it.config.secretName!!, it.config.regionName!!)
+                    )
+                }
+
+            getSigningDataFile(project).outputStream().use {
+                val json = Json {
+                    this.prettyPrint = true
+                }
+                json.encodeToStream(data, it)
+            }
         }
 
         logger.lifecycle("Secrets have been fetched! Signing configs only regenerate on 'gradle sync' thus, sync your project again to configure properly")
     }
 }
+data class FetchTaskPiece(
+    val name: String,
+    val config: SecretSigningExtensionImpl
+)
 
-internal fun parseSecretSigningData(project: Project): SignConfigSecret? {
+fun Iterable<FetchTaskPiece>.merge(): FetchTaskPiece {
+    val name = mapIndexed { index: Int, fetchTaskPiece: FetchTaskPiece ->
+        if (index != 0) fetchTaskPiece.name.capitalized() else fetchTaskPiece.name
+    }.joinToString(separator = "")
+    val configs = map { it.config }.toTypedArray()
+    val resultConfig = mergeValues(*configs)
+    if (!resultConfig.isValid()) {
+        throw GradleException(
+            """
+                Missing information on flavor $name. Please configure properly 'secretSigning' extension
+                at flavor or android extension level.
+                
+                Missing fields: ${resultConfig.reportMissingFields().joinToString()}
+            """.trimIndent()
+        )
+    }
+    return FetchTaskPiece(
+        name,
+        resultConfig
+    )
+}
+
+internal fun parseSecretSigningData(project: Project): SigningConfigCollection {
     val secretSignFile = getSigningDataFile(project)
     return if (secretSignFile.exists()) {
-        val gson = GsonBuilder().create()
-        try {
-            gson.fromJson(secretSignFile.reader(), SignConfigSecret::class.java)
-        } catch (e: Exception) {
-            project.logger.error("Failed to decode 'secretSigning' data file!!", e)
-            null
-        }
+        runCatching {
+            val secrets = secretSignFile.inputStream().use {
+                Json.decodeFromStream<List<SignConfigSecret>>(it)
+            }
+            SigningConfigCollection(secrets, project)
+        }.recover {
+            project.logger.error("Failed to parse secret Signing file, will fall back to defaults")
+            SigningConfigCollection.empty(project)
+        }.getOrThrow()
     } else {
-        null
+        SigningConfigCollection.empty(project)
     }
 }
 internal fun getSigningDataFile(project: Project): File {
