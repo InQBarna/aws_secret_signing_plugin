@@ -19,6 +19,7 @@ package com.inqbarna.secretsigning
 import com.android.build.api.dsl.ApplicationExtension
 import com.google.common.collect.ImmutableSetMultimap
 import com.google.common.collect.Sets
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
@@ -112,6 +113,7 @@ internal abstract class FetchSecretsTask @Inject constructor(
         description = "Fetch secret signing information from AWS"
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     @TaskAction
     fun fetchSecrets() {
 
@@ -214,6 +216,7 @@ fun Iterable<FetchTaskPiece>.merge(): FetchTaskPiece {
     )
 }
 
+@OptIn(ExperimentalSerializationApi::class)
 internal fun parseSecretSigningData(project: Project): SigningConfigCollection {
     val secretSignFile = getSigningDataFile(project)
     return if (secretSignFile.exists()) {
