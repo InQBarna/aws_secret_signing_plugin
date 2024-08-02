@@ -20,7 +20,6 @@ import com.android.build.api.dsl.ApplicationExtension
 import com.google.common.collect.ImmutableSetMultimap
 import com.google.common.collect.Sets
 import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream

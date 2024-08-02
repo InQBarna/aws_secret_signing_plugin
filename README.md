@@ -17,7 +17,7 @@ In your project `build.gradle` apply the *Secret Signing* plugin
 
 ```groovy
 plugins {
-    id "com.inqbarna.secretsigning" version "1.1"
+    id "com.inqbarna.secretsigning" version "1.3"
 }
 ```
 </details>
@@ -33,7 +33,7 @@ buildscript {
     }
   }
   dependencies {
-    classpath "com.inqbarna:secretsigning:1.1"
+    classpath "com.inqbarna:secretsigning:1.3"
   }
 }
 
