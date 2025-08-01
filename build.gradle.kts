@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.inqbarna"
-version = "1.3"
+version = "1.4-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -29,7 +29,7 @@ dependencies {
 //    implementation "org.jetbrains.kotlin:kotlin-stdlib"
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
     compileOnly("com.android.tools.build:gradle-api:8.5.1")
-    implementation(platform("software.amazon.awssdk:bom:2.17.152"))
+    implementation(platform("software.amazon.awssdk:bom:2.32.9"))
     implementation("software.amazon.awssdk:secretsmanager")
     implementation("com.google.guava:guava:33.2.1-jre")
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.8.1")
@@ -51,6 +51,14 @@ gradlePlugin {
             displayName = "AWS Secret Signing Plugin"
             description = "Get passwords from AWS Secret Manager to configure android signing release configuration"
             tags.addAll("android", "signing", "secret", "security", "aws")
+        }
+
+        val secretsPlugin by creating {
+            id = "com.inqbarna.secrets"
+            implementationClass = "com.inqbarna.secrets.SecretsPlugin"
+            displayName = "AWS Secrets Plugin"
+            description = "Get secrets from AWS Secret Manager to configure android application"
+            tags.addAll("android", "secrets", "security", "aws")
         }
     }
 }

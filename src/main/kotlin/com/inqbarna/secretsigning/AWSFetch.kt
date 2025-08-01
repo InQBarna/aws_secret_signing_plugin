@@ -19,10 +19,13 @@ package com.inqbarna.secretsigning
 import com.android.build.api.dsl.ApplicationExtension
 import com.google.common.collect.ImmutableSetMultimap
 import com.google.common.collect.Sets
+import com.inqbarna.secrets.SecretJsonFormat
+import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
+import kotlinx.serialization.serializer
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.Project
@@ -45,7 +48,12 @@ import javax.inject.Inject
 // Use this code snippet in your app.
 // If you need more information about configurations or implementing the sample code, visit the AWS docs:
 // https://docs.aws.amazon.com/sdk-for-java/v1/developer-guide/java-dg-samples.html#prerequisites
-private fun getSecret(secretName: String, regionName: String): SecretInfo {
+
+internal inline fun <reified T> getSecret(secretName: String, regionName: String): T {
+    return getSecret(secretName, regionName, serializer())
+}
+
+internal fun <T> getSecret(secretName: String, regionName: String, deserializationStrategy: DeserializationStrategy<T>): T {
     val region: Region = Region.of(regionName)
 
     // Create a Secrets Manager client
@@ -89,9 +97,8 @@ private fun getSecret(secretName: String, regionName: String): SecretInfo {
     // Depending on whether the secret is a string or binary, one of these fields will be populated.
     return if (getSecretValueResponse.secretString() != null) {
         val result = runCatching {
-            Json.decodeFromString<SecretInfo>(getSecretValueResponse.secretString())
+            SecretJsonFormat.decodeFromString<T>(deserializationStrategy, getSecretValueResponse.secretString())
         }
-
         if (result.isSuccess) {
             result.getOrThrow()
         } else {
@@ -99,8 +106,6 @@ private fun getSecret(secretName: String, regionName: String): SecretInfo {
         }
     } else {
         throw GradleException("Binary secret not supported by the plugin!")
-//        decodedBinarySecret =
-//            String(Base64.getDecoder().decode(getSecretValueResponse.secretBinary().asByteBuffer()).array())
     }
 }
 
