@@ -46,7 +46,6 @@ internal abstract class SecretExtensionImpl(private val project: Project, privat
     }
 
     override operator fun get(name: String): Provider<String> {
-        logger.lifecycle("Getting $name")
         return providersMap.computeIfAbsent(name) {
             providerFactory.provider {
                 val secretsFile = secretsFile.get().asFile
