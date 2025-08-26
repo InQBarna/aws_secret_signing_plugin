@@ -16,13 +16,13 @@ In your project's `build.gradle` apply the *Secrets* plugin as follows:
 
 <details open>
 <summary>Plugin DSL</summary>
+
 ```kotlin
 plugins {
     id("com.inqbarna.secrets" version) version "1.4"
 }
 ```
 </details>
-
 <details>
 <summary>Legacy Syntax</summary>
 
