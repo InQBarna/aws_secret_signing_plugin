@@ -18,8 +18,8 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
 plugins {
     id("java-gradle-plugin")
-    id("org.jetbrains.kotlin.jvm") version "2.0.0"
-    id("org.jetbrains.kotlin.plugin.serialization") version "2.0.0"
+    id("org.jetbrains.kotlin.jvm") version "2.2.0"
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.2.0"
     id("maven-publish")
     id("com.gradle.plugin-publish") version "1.2.1"
     id("signing")
@@ -36,8 +36,8 @@ repositories {
 kotlin {
     jvmToolchain(17)
     compilerOptions {
-        freeCompilerArgs.add("-Xopt-in=kotlin.RequiresOptIn")
-        languageVersion.set(KotlinVersion.KOTLIN_2_0)
+        freeCompilerArgs.add("-opt-in=kotlin.RequiresOptIn")
+        languageVersion.set(KotlinVersion.KOTLIN_2_2)
     }
 }
 
