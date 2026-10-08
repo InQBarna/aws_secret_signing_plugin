@@ -16,6 +16,7 @@
 
 package com.inqbarna.secretsigning
 
+import com.android.build.api.variant.VariantExtension
 import org.gradle.api.provider.Property
 import java.io.File
 
@@ -25,33 +26,70 @@ interface SecretSigningExtension {
     val aliasPasswordKey: Property<String>
     var keystoreFile: File?
 }
-abstract class SecretSigningExtensionImpl : SecretSigningExtension {
 
-    init {
-        keystorePassKey.convention("store_pass")
-        aliasPasswordKey.convention("alias_pass")
-        aliasNameKey.convention("alias_name")
-    }
+data class MergedSigningConfig(
+    val keystoreFile: File?,
+    val keystorePassKey: String,
+    val aliasNameKey: String,
+    val aliasPasswordKey: String
+) {
+    fun isValid() = keystoreFile != null
+    fun reportMissingFields(): List<String> = if (keystoreFile == null) listOf("keystoreFile") else emptyList()
+}
 
-    fun isValid(): Boolean {
-        return keystorePassKey.isPresent && aliasPasswordKey.isPresent && aliasNameKey.isPresent && keystoreFile != null
-    }
+class SigningVariantExtension(val config: MergedSigningConfig) : VariantExtension
 
-    fun reportMissingFields(): List<String> = listOf(
-        ::keystorePassKey,
-        ::aliasNameKey,
-        ::aliasPasswordKey
-    ).mapNotNull {
-        if (!(it.get().isPresent)) {
-            it.name
-        } else {
-            null
-        }
-    }.let {
-        if (keystoreFile == null) {
-            it + "keystoreFile"
-        } else {
-            it
+/**
+ * Gradle-free snapshot of one `secretSigning { }` block. A `null` field means "not set here, inherit it".
+ */
+internal data class SigningSpec(
+    val keystoreFile: File? = null,
+    val keystorePassKey: String? = null,
+    val aliasNameKey: String? = null,
+    val aliasPasswordKey: String? = null
+)
+
+/**
+ * No conventions on purpose: an unset property must stay unset so that values from lower priority
+ * levels (global block, then defaults) can be inherited. Defaults are applied by [merge].
+ */
+abstract class SecretSigningExtensionImpl : SecretSigningExtension, VariantExtension {
+
+    internal fun toSpec() = SigningSpec(
+        keystoreFile = keystoreFile,
+        keystorePassKey = keystorePassKey.orNull,
+        aliasNameKey = aliasNameKey.orNull,
+        aliasPasswordKey = aliasPasswordKey.orNull
+    )
+
+    companion object {
+        const val DEFAULT_STORE_PASS_KEY = "store_pass"
+        const val DEFAULT_ALIAS_NAME_KEY = "alias_name"
+        const val DEFAULT_ALIAS_PASS_KEY = "alias_pass"
+
+        /**
+         * Field-wise merge: for each field, the first flavor (highest priority first) that sets it wins,
+         * then the global block, then the default value.
+         */
+        internal fun merge(global: SigningSpec?, flavorsByPriority: List<SigningSpec>): MergedSigningConfig {
+            val levels = flavorsByPriority + listOfNotNull(global)
+            fun <T : Any> pick(field: (SigningSpec) -> T?): T? = levels.firstNotNullOfOrNull(field)
+            return MergedSigningConfig(
+                keystoreFile = pick { it.keystoreFile },
+                keystorePassKey = pick { it.keystorePassKey } ?: DEFAULT_STORE_PASS_KEY,
+                aliasNameKey = pick { it.aliasNameKey } ?: DEFAULT_ALIAS_NAME_KEY,
+                aliasPasswordKey = pick { it.aliasPasswordKey } ?: DEFAULT_ALIAS_PASS_KEY
+            )
         }
     }
 }
+
+/**
+ * All flavor combinations, one flavor per dimension, each ordered by [dimensions] (which is also AGP's
+ * flavor priority order). With no dimensions there is a single empty combination.
+ */
+internal fun <F> flavorCombinations(dimensions: List<String>, flavorsByDimension: Map<String, List<F>>): List<List<F>> =
+    dimensions.fold(listOf(emptyList())) { acc, dimension ->
+        val flavors = flavorsByDimension[dimension].orEmpty()
+        acc.flatMap { combo -> flavors.map { combo + it } }
+    }

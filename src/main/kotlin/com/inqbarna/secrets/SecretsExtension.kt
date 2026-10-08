@@ -23,7 +23,6 @@ import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
 import org.gradle.api.provider.ProviderFactory
-import org.gradle.internal.cc.base.logger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
 
@@ -39,6 +38,8 @@ internal abstract class SecretExtensionImpl(private val project: Project, privat
 
     abstract val secretsFile: RegularFileProperty
 
+    internal var fetcher: SecretFetcher = AwsSecretFetcher
+
     private val providersMap: ConcurrentMap<String, Provider<String>> = ConcurrentHashMap()
 
     init {
@@ -53,8 +54,8 @@ internal abstract class SecretExtensionImpl(private val project: Project, privat
                 var fileFetched = false
                 synchronized(sync) {
                     if (!secretsFile.exists()) {
-                        logger.lifecycle("File doesn't exist, will download")
-                        project.downloadSecretsToFile(secretsFile, secretName.get(), regionName.get())
+                        project.logger.lifecycle("File doesn't exist, will download")
+                        project.downloadSecretsToFile(secretsFile, secretName.get(), regionName.get(), fetcher)
                         fileFetched = true
                     }
                 }
@@ -68,8 +69,8 @@ internal abstract class SecretExtensionImpl(private val project: Project, privat
                     } else {
                         // try to fetch the file again, just in case secrets are updated (we don't have checksum or versioning to check with the server)
                         synchronized(sync) {
-                            logger.lifecycle("File doesn't exist, will download")
-                            project.downloadSecretsToFile(secretsFile, secretName.get(), regionName.get())
+                            project.logger.lifecycle("Secret '$name' not in cached file, will download again")
+                            project.downloadSecretsToFile(secretsFile, secretName.get(), regionName.get(), fetcher)
                         }
 
                         val newlyDecodedSecrets = secretsFile.inputStream().use {

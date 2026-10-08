@@ -26,7 +26,7 @@ plugins {
 }
 
 group = "com.inqbarna"
-version = "1.4"
+version = "1.5-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -36,20 +36,31 @@ repositories {
 kotlin {
     jvmToolchain(17)
     compilerOptions {
-        freeCompilerArgs.add("-opt-in=kotlin.RequiresOptIn")
+        freeCompilerArgs.addAll(
+            "-opt-in=kotlin.RequiresOptIn",
+            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi"
+        )
         languageVersion.set(KotlinVersion.KOTLIN_2_2)
     }
 }
 
+val testPluginClasspath = configurations.create("testPluginClasspath")
+
 dependencies {
 //    implementation "org.jetbrains.kotlin:kotlin-stdlib"
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
-    compileOnly("com.android.tools.build:gradle-api:8.5.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    compileOnly("com.android.tools.build:gradle-api:9.2.1")
     implementation(platform("software.amazon.awssdk:bom:2.32.9"))
     implementation("software.amazon.awssdk:secretsmanager")
     implementation("com.google.guava:guava:33.2.1-jre")
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.8.1")
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.8.1")
+    testImplementation(platform("org.junit:junit-bom:5.11.4"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation(kotlin("test-junit5"))
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    // compileOnly in main, but SecretSigningExtensionImpl implements VariantExtension
+    testRuntimeOnly("com.android.tools.build:gradle-api:9.2.1")
+    // AGP must share a classloader with the plugin under test (see pluginUnderTestMetadata below)
+    testPluginClasspath("com.android.tools.build:gradle:9.2.1")
 }
 
 signing {
@@ -79,6 +90,18 @@ gradlePlugin {
     }
 }
 
+tasks.pluginUnderTestMetadata {
+    pluginClasspath.from(testPluginClasspath)
+}
+
 tasks.named("test", Test::class) {
-    useJUnitPlatform()
+    useJUnitPlatform { excludeTags("slow") }
+}
+
+// Real assemble functional tests, they take long: gradle slowTest
+tasks.register("slowTest", Test::class) {
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform { includeTags("slow") }
 }

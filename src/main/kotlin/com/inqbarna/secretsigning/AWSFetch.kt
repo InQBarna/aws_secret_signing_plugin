@@ -73,7 +73,7 @@ internal fun <T> getSecret(secretName: String, regionName: String, deserializati
     } catch (e: ResourceNotFoundException) {
         // We can't find the resource that you asked for.
         // Deal with the exception here, and/or rethrow at your discretion.
-        throw GradleException("Failed to get AWS secret.  Did you set 'secretSigning.secretName' to a proper value?", e)
+        throw GradleException("Failed to get AWS secret.  Did you set 'secrets.secretName' to a proper value?", e)
     } catch (e: SdkClientException) {
         throw GradleException("Failed to get AWS credentials, did you configure them properly? See https://github.com/awsdocs/aws-doc-sdk-examples about how to use CLI to init them.\nInstall the CLI and run 'aws configure' with values from AWS Security Credentials page", e)
     }

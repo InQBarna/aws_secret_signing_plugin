@@ -14,67 +14,92 @@
  * limitations under the License.
  */
 
+@file:Suppress("UnstableApiUsage")
+
 package com.inqbarna.secretsigning
 
 import com.android.build.api.dsl.ApkSigningConfig
-import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
+import com.android.build.api.variant.DslExtension
 import com.inqbarna.secrets.SecretsExtension
 import com.inqbarna.secrets.SecretsPlugin
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.plugins.ExtensionAware
-import org.gradle.internal.cc.base.logger
 
 class SecretSigningPlugin : Plugin<Project> {
 
     override fun apply(project: Project) {
-
         project.pluginManager.apply(SecretsPlugin::class.java)
 
         project.pluginManager.withPlugin("com.android.base") {
             val androidComponents = project.extensions.getByType(ApplicationAndroidComponentsExtension::class.java)
 
-            val applicationExtension = project.extensions.getByType(ApplicationExtension::class.java)
-            val secretSigningExtension = configureAppExtension(applicationExtension)
+            // Register secretSigning { } as a DSL block on android { } (project-level) and on each
+            // productFlavor { } block. Values are merged field by field, see SecretSigningExtensionImpl.merge.
+            val dslExt = DslExtension.Builder(SECRET_SIGNING_EXTENSION_NAME)
+                .extendProjectWith(SecretSigningExtensionImpl::class.java)
+                .extendProductFlavorWith(SecretSigningExtensionImpl::class.java)
+                .build()
 
-            var signingConfigured: ApkSigningConfig? = null
-            androidComponents.finalizeDsl { appExtension ->
-                if (!secretSigningExtension.isValid()) {
-                    val missingFields = secretSigningExtension.reportMissingFields()
-                    logger.lifecycle("No secret signing configured, please configure the following fields: ${missingFields.joinToString(", ")}. Release builds will be disabled")
-                }
+            androidComponents.registerExtension(dslExt) { variantExtConfig ->
+                val global = variantExtConfig.projectExtension(SecretSigningExtensionImpl::class.java)
+                val flavors = variantExtConfig.productFlavorsExtensions(SecretSigningExtensionImpl::class.java)
+                SigningVariantExtension(SecretSigningExtensionImpl.merge(global.toSpec(), flavors.map { it.toSpec() }))
+            }
 
-                appExtension.signingConfigs {
-                    signingConfigured = this.create("releaseSigning") {
-                        it.storeFile = secretSigningExtension.keystoreFile
-                        val secrets = project.extensions.getByType(SecretsExtension::class.java)
-                        it.storePassword = secrets[secretSigningExtension.keystorePassKey.get()].get()
-                        it.keyAlias = secrets[secretSigningExtension.aliasNameKey.get()].get()
-                        it.keyPassword = secrets[secretSigningExtension.aliasPasswordKey.get()].get()
+            // Release signing config per flavor combination, keyed by the combination's flavor names
+            // (flavor names are unique across dimensions, so a set identifies the combination).
+            val signingByFlavors = mutableMapOf<Set<String>, ApkSigningConfig>()
+
+            androidComponents.finalizeDsl { appExt ->
+                val secrets = project.extensions.getByType(SecretsExtension::class.java)
+                val globalSpec = appExt.secretSigningSpec()
+
+                val dimensions = appExt.flavorDimensions.toList()
+                val flavorsByDimension = appExt.productFlavors.groupBy { flavor ->
+                    flavor.dimension ?: dimensions.singleOrNull()
+                }.filterKeys { it != null }.mapKeys { it.key!! }
+
+                val createdByConfig = mutableMapOf<MergedSigningConfig, ApkSigningConfig>()
+                flavorCombinations(dimensions, flavorsByDimension).forEach { combo ->
+                    val merged = SecretSigningExtensionImpl.merge(globalSpec, combo.map { it.secretSigningSpec() })
+                    val variantLabel = combo.joinToString("") { it.name.replaceFirstChar(Char::titlecase) }
+                        .replaceFirstChar(Char::lowercase) + if (combo.isEmpty()) "release" else "Release"
+                    if (!merged.isValid()) {
+                        project.logger.lifecycle(
+                            "SecretSigning: no valid config for '$variantLabel', missing fields: ${merged.reportMissingFields().joinToString()}. It will be disabled."
+                        )
+                        return@forEach
                     }
-                }
-                if (signingConfigured != null) {
-                    appExtension.buildTypes.onEach { buildType ->
-                        if (buildType.name == "release") {
-                            buildType.signingConfig = signingConfigured
+                    val signingConfig = createdByConfig.getOrPut(merged) {
+                        appExt.signingConfigs.create("${variantLabel}Signing") { sc ->
+                            sc.storeFile = merged.keystoreFile
+                            sc.storePassword = secrets[merged.keystorePassKey].get()
+                            sc.keyAlias = secrets[merged.aliasNameKey].get()
+                            sc.keyPassword = secrets[merged.aliasPasswordKey].get()
                         }
                     }
+                    project.logger.info("SecretSigning: '$variantLabel' uses signing config '${signingConfig.name}'")
+                    signingByFlavors[combo.map { it.name }.toSet()] = signingConfig
                 }
             }
 
-            androidComponents.beforeVariants(
-                selector = androidComponents.selector().withBuildType("release")
-            ) { variantBuilder ->
-                variantBuilder.enable = signingConfigured != null && secretSigningExtension.isValid()
+            val releaseSelector = androidComponents.selector().withBuildType("release")
+
+            androidComponents.beforeVariants(releaseSelector) { vb ->
+                vb.enable = vb.productFlavors.map { it.second }.toSet() in signingByFlavors
+            }
+
+            androidComponents.onVariants(releaseSelector) { variant ->
+                signingByFlavors[variant.productFlavors.map { it.second }.toSet()]?.let {
+                    variant.signingConfig.setConfig(it)
+                }
             }
         }
     }
 
-    private fun configureAppExtension(
-        applicationExtension: ApplicationExtension,
-    ): SecretSigningExtensionImpl {
-        return (applicationExtension as ExtensionAware).extensions.create(SecretSigningExtension::class.java, "secretSigning", SecretSigningExtensionImpl::class.java) as SecretSigningExtensionImpl
-
-    }
+    /** The android { } or productFlavor { } object carries the secretSigning block registered via DslExtension. */
+    private fun Any.secretSigningSpec(): SigningSpec =
+        (this as ExtensionAware).extensions.findByType(SecretSigningExtensionImpl::class.java)?.toSpec() ?: SigningSpec()
 }
