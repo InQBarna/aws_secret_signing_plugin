@@ -139,3 +139,11 @@ gradle-app.setting
 .classpath
 
 # End of https://www.toptal.com/developers/gitignore/api/gradle
+# Per-user / plugin IDE state
+.idea/misc.xml
+.idea/vcs.xml
+.idea/copilot.data.migration.*.xml
+.idea/go.imports.xml
+.idea/modules.xml
+# IDE project of the sample app
+samples/**/.idea/

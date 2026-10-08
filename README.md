@@ -9,6 +9,7 @@ properties through the `secrets` extension
 
 You will need to have AWS CLI [installed](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
 and [configured](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-quickstart.html#getting-started-quickstart-new) though on your computer
+(not needed when using a [local secrets file](#local-secrets-file))
 
 ## Setup
 
@@ -19,7 +20,7 @@ In your project's `build.gradle` apply the *Secrets* plugin as follows:
 
 ```kotlin
 plugins {
-    id("com.inqbarna.secrets" version) version "1.4"
+    id("com.inqbarna.secrets") version "1.5"
 }
 ```
 </details>
@@ -34,7 +35,7 @@ buildscript {
     }
   }
   dependencies {
-    classpath "com.inqbarna:secretsigning:1.4"
+    classpath "com.inqbarna:secretsigning:1.5"
   }
 }
 
@@ -73,6 +74,22 @@ androidComponents {
 }
 ```
 
+### Local secrets file
+
+To read secrets from a local JSON file instead of AWS (useful for CI and local testing), set the
+`inqbarna.secrets.localFile` Gradle property, for example in `gradle.properties`. The path is relative to the
+root project directory, and an empty value means AWS is used. The file has the same flat shape as the AWS secret, and `secretName` becomes optional.
+Secrets are still cached in `build/secrets/secrets.json`.
+
+```properties
+inqbarna.secrets.localFile=secrets/local-secrets.json
+```
+
+> **Refreshing the cache.** The cache does not record where the secrets came from, nor does it check whether they
+> changed. A key that is missing from the cache triggers one re-download. Existing keys are reused as they are. So
+> whenever you know the secrets changed, run `gradle refreshSecrets` (or `clean`), including when you switch between
+> a local file and AWS. Otherwise the previously cached values keep being used.
+
 # Secret Signing Plugin
 
 Store your signing passwords on AWS Secret Manager safely, then apply the plugin
@@ -87,7 +104,7 @@ In your project `build.gradle` apply the *Secret Signing* plugin
 
 ```groovy
 plugins {
-    id "com.inqbarna.secretsigning" version "1.4"
+    id "com.inqbarna.secretsigning" version "1.5"
 }
 ```
 </details>
@@ -103,7 +120,7 @@ buildscript {
     }
   }
   dependencies {
-    classpath "com.inqbarna:secretsigning:1.4"
+    classpath "com.inqbarna:secretsigning:1.5"
   }
 }
 
@@ -112,26 +129,81 @@ apply plugin: "com.inqbarna.secretsigning"
 </details>
 
 
-You can configure it in the `secretSigning` in the android block with the following options. 
-productFlavors
+The *Secret Signing* plugin applies the *Secrets* plugin itself, so configure the `secrets { }` extension as described
+above (or use a [local secrets file](#local-secrets-file)).
+
+You can configure it with the `secretSigning` block in the `android` block (global settings for all variants), or
+in each `productFlavors` entry (see [Product flavors](#product-flavors)), with the following options.
 
 ```kotlin
 android {
     secretSigning {
         // The key for the secret within [Secrets Plugin]. By default it is "store_pass"
-        keystorePassKey = "store_pass"
-        
+        keystorePassKey.set("store_pass")
+
         // The key for the secret within [Secrets Plugin]. By default it is "alias_name"
-        aliasNameKey = "alias_name"
-        
+        aliasNameKey.set("alias_name")
+
         // The key for the secret within [Secrets Plugin]. By default it is "alias_pass"
-        aliasPasswordKey = "alias_pass"
-        
+        aliasPasswordKey.set("alias_pass")
+
         // The path to the keystore file. This is the file that will be used to sign
         keystoreFile = file("keystore_filename.jks")
     }
 }
 ```
+
+### Product flavors
+
+Each product flavor can have its own `secretSigning` block. In Kotlin DSL there are two equivalent ways to write it.
+
+**Option 1: import the typed helper**, then use the short syntax inside the flavor:
+
+```kotlin
+import com.inqbarna.secretsigning.secretSigning
+
+android {
+    flavorDimensions += listOf("env")
+    productFlavors {
+        create("production") {
+            dimension = "env"
+            secretSigning {
+                keystoreFile = file("production.jks")
+            }
+        }
+    }
+}
+```
+
+**Option 2: use the explicit extension syntax**, with no helper import:
+
+```kotlin
+import com.inqbarna.secretsigning.SecretSigningExtension
+
+android {
+    flavorDimensions += listOf("env")
+    productFlavors {
+        create("production") {
+            dimension = "env"
+            extensions.configure<SecretSigningExtension>("secretSigning") {
+                keystoreFile = file("production.jks")
+            }
+        }
+    }
+}
+```
+
+> **Warning:** do not write `secretSigning { }` inside a flavor without the
+> `import com.inqbarna.secretsigning.secretSigning` line. Gradle only generates a Kotlin DSL accessor for the global
+> `android { secretSigning { } }` block. Inside a flavor, that accessor is still reachable through the enclosing
+> `android` block. The build compiles, but every flavor silently writes the **global** block (the last one wins), so
+> variants can be signed with the wrong keystore. The helper import makes `secretSigning { }` target the flavor
+> instead. The global `secretSigning { }` keeps working with or without the import.
+
+Settings are merged field by field for each combination of flavors. For each field
+(`keystoreFile`, `keystorePassKey`, `aliasNameKey`, `aliasPasswordKey`) the highest-priority flavor that sets it wins.
+Priority follows the `flavorDimensions` order, as in AGP. If no flavor sets it, the global block is used, and then the
+defaults. A release variant whose merged configuration has no `keystoreFile` is disabled.
 
 ## Full example with minimal setup
 
@@ -139,7 +211,8 @@ android {
 ```kotlin
 plugins {
     id("com.android.application")
-    id("com.inqbarna.secrets") version "1.4"
+    // Also applies com.inqbarna.secrets, so the secrets { } extension is available
+    id("com.inqbarna.secretsigning") version "1.5"
 }
 
 secrets {
@@ -187,3 +260,8 @@ The expected structure of the secret is:
   "maps_api_key": "<your_maps_api_key>"
 }
 ```
+
+# Sample app
+
+An offline harness for the Secret Signing plugin, with per-flavor and multi-dimension signing, lives in
+[samples/sampleapp](samples/sampleapp/README.md). It uses the plugin from this repository and a local secrets file, so no AWS access is needed.
