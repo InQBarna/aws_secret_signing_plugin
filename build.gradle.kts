@@ -26,7 +26,7 @@ plugins {
 }
 
 group = "com.inqbarna"
-version = "1.5-SNAPSHOT"
+version = "1.5"
 
 repositories {
     mavenCentral()
